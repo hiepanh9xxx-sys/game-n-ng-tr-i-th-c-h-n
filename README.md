@@ -40,8 +40,10 @@ Sau đó bật Pages như bước 3.
 | Chạm vào Hiệp, Cốm, Bánh (trên bản đồ hoặc ở góc phải) | Ánh đến nói chuyện, kể chuyện |
 | Chạm vào ngôi nhà | Vào nhà. Trong nhà chạm giường để ngủ, chạm bếp để nấu |
 | Nút Menu | Lưu game, sao lưu mã, cách chơi |
+| Chụm / mở hai ngón tay, hoặc nút + và − | Thu nhỏ, phóng to bản đồ |
+| Kéo một ngón tay | Nhìn quanh nông trại; nút ◎ đưa camera về chỗ Ánh |
 
-Trên máy tính: WASD hoặc phím mũi tên để đi, E hoặc Space để làm việc và nói chuyện, Esc mở Menu.
+Trên máy tính: WASD hoặc phím mũi tên để đi, E hoặc Space để làm việc và nói chuyện, cuộn chuột hoặc phím + và − để zoom, Esc mở Menu.
 
 ## Lưu game
 

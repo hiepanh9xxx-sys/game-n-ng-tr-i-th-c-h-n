@@ -89,6 +89,11 @@ canvas#view{display:block;width:100%;height:100%}
 #menuBtn{position:absolute;left:10px;bottom:10px;z-index:3;font-family:var(--font);font-size:17px;font-weight:700;color:var(--ink);padding:4px 16px;cursor:pointer}
 
 
+/* Zoom */
+#zoom{right:10px;bottom:84px;display:grid;gap:6px}
+.zb{width:44px;height:44px;padding:0;font-family:var(--font);font-size:24px;font-weight:800;line-height:1;color:var(--ink);cursor:pointer;border-radius:50%;display:grid;place-items:center}
+.zb:active{transform:translateY(2px)}
+
 /* Toast */
 #toast{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:6;padding:4px 16px;font-size:17px;font-weight:700;max-width:86%;text-align:center}
 
@@ -164,6 +169,7 @@ textarea{height:120px;resize:vertical;user-select:text}
   <div class="hud box" id="itemname" hidden></div>
   <div class="hud box" id="hotbar" hidden></div>
   <button class="box" id="menuBtn" type="button" hidden>Menu</button>
+  <div class="hud" id="zoom" hidden><button class="box zb" id="zIn" type="button" aria-label="Phóng to">+</button><button class="box zb" id="zOut" type="button" aria-label="Thu nhỏ">−</button><button class="box zb" id="zMe" type="button" aria-label="Về chỗ Ánh" title="Về chỗ Ánh">◎</button></div>
   <div class="hud box" id="toast" hidden></div>
 
   <div class="box" id="dlg" hidden tabindex="0" role="dialog"></div>
@@ -196,12 +202,12 @@ function shadow(c,x,y,rx,ry=rx*.45,a=.2){ c.fillStyle=`rgba(46,70,28,${a})`; ell
 function diamond(c,g=0.7){ poly(c,[[0,-HH2-g/2],[HW2+g,0],[0,HH2+g/2],[-HW2-g,0]]); }
 function face3(c,a,b,cc,d,fill,lw=1.2){ poly(c,[a,b,cc,d]); fs(c,fill,lw); }
 
-let Z = 2;                                       // device px per iso px
+let Z = 2, Zb = 2;                               // Z: device px per iso px now; Zb: zoom the sprites were baked at
 const SPR = {};
 function spr(key,w,h,ox,oy,fn){
   let s = SPR[key]; if (s) return s;
-  const c = document.createElement('canvas'); c.width = Math.max(1,Math.ceil(w*Z)); c.height = Math.max(1,Math.ceil(h*Z));
-  const x = c.getContext('2d'); x.scale(Z,Z); x.translate(ox,oy); x.lineCap='round'; x.lineJoin='round'; fn(x);
+  const c = document.createElement('canvas'); c.width = Math.max(1,Math.ceil(w*Zb)); c.height = Math.max(1,Math.ceil(h*Zb));
+  const x = c.getContext('2d'); x.scale(Zb,Zb); x.translate(ox,oy); x.lineCap='round'; x.lineJoin='round'; fn(x);
   return SPR[key] = {c,ox,oy};
 }
 function clearSprites(){ for (const k in SPR) delete SPR[k]; }
@@ -672,6 +678,8 @@ window.addEventListener('keydown', e=>{
   if (KEYMAP[e.code]){ keys[KEYMAP[e.code]]=true; e.preventDefault(); return; }
   if (dlgOpen){ if (['Space','Enter','KeyE'].includes(e.code)){ e.preventDefault(); advanceDlg(); } return; }
   if (e.code==='Escape'){ if (modalOpen) closeModal(); else if (!paused) openMenu(); return; }
+  if (!paused && (e.key==='+'||e.key==='=')){ setZoom(userZoom*1.25); return; }
+  if (!paused && (e.key==='-'||e.key==='_')){ setZoom(userZoom/1.25); return; }
   if (paused) return;
   if (['Space','Enter','KeyE'].includes(e.code)){ e.preventDefault(); const q=me(), th=S.thanh;
     const near = HELPERS.find(m=>S.pos[m].map===q.map && Math.hypot(S.pos[m].x-q.x,S.pos[m].y-q.y)<24);
@@ -726,7 +734,7 @@ function renderQuest(){
 function renderHUD(){ renderHotbar(); renderFamily(); renderClock(); renderQuest(); }
 let toastT;
 function toast(msg, ms=2600){ const t=$('toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, ms); }
-function showHUD(on){ ['quest','right','hotbar','itemname','menuBtn'].forEach(id=>$(id).hidden=!on); }
+function showHUD(on){ ['quest','right','hotbar','itemname','menuBtn','zoom'].forEach(id=>$(id).hidden=!on); }
 
 // ================= DIALOGUE =================
 let dlgQueue = [], dlgDone = null;
@@ -1040,7 +1048,7 @@ function newDay(passedOut){
   S.shipped = {lua:0,trung:0};
   for (const k in S.soil){ const s=S.soil[k]; if (s.crop && s.w && s.crop.days<3) s.crop.days++; s.w=false; }
   if (S.coop.fixed && S.coop.fed){ S.coop.egg = true; S.coop.fed = false; }
-  S.day++; S.time = 360; bubbles.length = 0; convo = null;
+  S.day++; S.time = 360; bubbles.length = 0; convo = null; for (const m of HELPERS) if (S.pos[m] && S.pos[m].ai) S.pos[m].ai.hold = 0;
   S.weather = S.stormTomorrow ? 'rain' : 'sun';
   if (S.weather==='rain'){
     for (const k in S.soil) S.soil[k].w = true;
@@ -1162,8 +1170,8 @@ function aiUpdate(m,dt){
     a.wander = 4+Math.random()*5;
     // idle people drift toward someone to chat with
     const others = MEMBERS.filter(o=>o!==m && S.pos[o].map===q.map);
-    const pick = (m!=='hiep' && S.pos.anh.map===q.map && Math.random()<0.6) ? 'anh' : others[Math.floor(Math.random()*others.length)];
-    if (others.length && Math.random()<0.65){ const o=S.pos[pick], [ox,oy]=tileOf(o); goTo(m,ox,oy,null,false,true); }
+    const pick = (m!=='hiep' && S.pos.anh.map===q.map && Math.random()<0.35) ? 'anh' : others[Math.floor(Math.random()*others.length)];
+    if (others.length && Math.random()<0.5){ const o=S.pos[pick], [ox,oy]=tileOf(o), dx=Math.random()<.5?-2:2, dy=Math.random()<.5?-2:2; if (!goTo(m,ox+dx,oy+dy,null,true,true)) wander(m,3,2); }
     else wander(m,3,2);
   }
 }
@@ -1180,7 +1188,7 @@ function bubble(who,text,dur){ for (let i=bubbles.length-1;i>=0;i--) if (bubbles
 function posOf(who){ return who==='thanh' ? S.thanh : S.pos[who]; }
 function playConvo(lines){
   const ppl=[...new Set(lines.map(l=>l[0]))];
-  for (const w of ppl) if (S.pos[w] && w!=='anh'){ const a=ai(w); a.hold=999; S.pos[w].path=null; S.pos[w].goal=null; S.pos[w].moving=false; }
+  for (const w of ppl) if (S.pos[w] && w!=='anh'){ const a=ai(w); a.hold=30; S.pos[w].path=null; S.pos[w].goal=null; S.pos[w].moving=false; }
   if (ppl.length===2){ const A=posOf(ppl[0]), B=posOf(ppl[1]); if (A&&B){ if (ppl[0]!=='anh') faceTo(A,B); if (ppl[1]!=='anh') faceTo(B,A); } }
   convo = {lines, i:-1, t:0, ppl}; nextLine();
 }
@@ -1377,19 +1385,29 @@ function speedOf(m){ return m==='banh'?58:m==='com'?68:76; }
 // ================= RENDER (isometric) =================
 let camX = 0, camY = 0, viewW = 0, viewH = 0;
 const butterflies = [[9,10,0,'#ffd166'],[22,9,1.7,'#f7a1b8'],[14,21,3.1,'#b9a7f2'],[28,14,4.4,'#ffffff'],[5,13,5.2,'#ffd166']].map(([u,v,ph,col])=>({u,v,ph,col}));
+let baseZ = 2, userZoom = 1, camOff = {x:0,y:0}, rebakeT = 0;
+try { userZoom = Math.max(.5, Math.min(2, +localStorage.getItem('thachan-zoom') || 1)); } catch(e){}
 function resize(){
   const dpr = Math.min(2, window.devicePixelRatio||1);
   const w = canvas.clientWidth, h = canvas.clientHeight;
   canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
-  const z = dpr * Math.max(1, Math.min(1.7, Math.min(w/560, h/420)));
-  if (Math.abs(z-Z) > 0.01){ Z = z; clearSprites(); }
-  viewW = canvas.width/Z; viewH = canvas.height/Z;
+  baseZ = dpr * Math.max(1, Math.min(1.7, Math.min(w/560, h/420)));
+  applyZoom(true);
+}
+function applyZoom(now){
+  Z = baseZ * userZoom; viewW = canvas.width/Z; viewH = canvas.height/Z;
+  // re-bake sprites only when the zoom has settled and drifted far from the baked size
+  if (now || Math.abs(Z/Zb-1) > .18){ clearTimeout(rebakeT); rebakeT = setTimeout(()=>{ if (Math.abs(Z/Zb-1) > .02){ Zb = Z; clearSprites(); } }, now?0:250); }
+}
+function setZoom(z, keepToast){
+  userZoom = Math.max(.5, Math.min(2, z)); applyZoom(false);
+  try { localStorage.setItem('thachan-zoom', String(userZoom)); } catch(e){}
 }
 window.addEventListener('resize', resize);
 function charIso(q){ return iso(q.x/TS, (q.y-4)/TS); }
 function charKey(q){ return q.x/TS + (q.y-4)/TS; }
 function isoToTile(X,Y){ const a=X/HW2, b=Y/HH2; return [(a+b)/2, (b-a)/2]; }
-function put(s,X,Y){ ctx.drawImage(s.c, Math.round((X-camX-s.ox)*Z), Math.round((Y-camY-s.oy)*Z)); }
+function put(s,X,Y){ const k=Z/Zb; ctx.drawImage(s.c, Math.round((X-camX-s.ox)*Z), Math.round((Y-camY-s.oy)*Z), s.c.width*k, s.c.height*k); }
 function at(X,Y){ ctx.setTransform(Z,0,0,Z,(X-camX)*Z,(Y-camY)*Z); }
 function drawCharAt(id,X,Y,dir,step){
   const [back,flip] = viewOf(dir);
@@ -1446,15 +1464,20 @@ function drawWorld(){
   const p = me(), farm = p.map==='farm', mp = mapOf(p.map);
   const [ax,ay] = charIso(p);
   const minX = farm ? -MH*HW2 : -HH*HW2, maxX = farm ? MW*HW2 : HW*HW2, maxY = farm ? (MW+MH)*HH2 : (HW+HH)*HH2;
-  let cx = ax - viewW/2, cy = ay - viewH/2 - 20;
+  if (p.path && p.path.length){ camOff.x *= .92; camOff.y *= .92; }
+  let cx = ax - viewW/2 + camOff.x, cy = ay - viewH/2 - 20 + camOff.y;
   if (maxX-minX+80 < viewW) cx = (minX+maxX)/2 - viewW/2; else cx = Math.max(minX-40, Math.min(maxX+40-viewW, cx));
   if (maxY+160 < viewH) cy = maxY/2 - viewH/2 - 30; else cy = Math.max(-140, Math.min(maxY+40-viewH, cy));
+  camOff.x = cx - (ax - viewW/2); camOff.y = cy - (ay - viewH/2 - 20);
   camX = cx; camY = cy;
   ctx.setTransform(1,0,0,1,0,0); ctx.imageSmoothingEnabled = true;
   ctx.fillStyle = farm ? '#5c9842' : '#3b2a20'; ctx.fillRect(0,0,canvas.width,canvas.height);
   const vis = (X,Y,pad=40)=> X>camX-pad-HW2 && X<camX+viewW+pad+HW2 && Y>camY-pad-HH2 && Y<camY+viewH+pad+110;
   const wf = Math.floor(anim*1.6)%2;
-  for (let y=0;y<mp.h;y++) for (let x=0;x<mp.w;x++){
+  const corners = [[camX,camY],[camX+viewW,camY],[camX,camY+viewH+120],[camX+viewW,camY+viewH+120]].map(([X,Y])=>isoToTile(X,Y));
+  const u0=Math.max(0,Math.floor(Math.min(...corners.map(c=>c[0])))-2), u1=Math.min(mp.w-1,Math.ceil(Math.max(...corners.map(c=>c[0])))+2);
+  const v0=Math.max(0,Math.floor(Math.min(...corners.map(c=>c[1])))-2), v1=Math.min(mp.h-1,Math.ceil(Math.max(...corners.map(c=>c[1])))+2);
+  for (let y=v0;y<=v1;y++) for (let x=u0;x<=u1;x++){
     const [X,Y] = iso(x+.5,y+.5); if (!vis(X,Y)) continue;
     const i = idx(x,y,mp.w), g = mp.g[i];
     if (!farm && (g==='wall'||g==='wallLow')) continue;
@@ -1465,7 +1488,7 @@ function drawWorld(){
   }
   const list = [], push = (k,fn)=>list.push({k,fn});
   if (farm){
-    for (let y=0;y<MH;y++) for (let x=0;x<MW;x++){
+    for (let y=v0;y<=Math.min(MH-1,v1+3);y++) for (let x=u0;x<=Math.min(MW-1,u1+3);x++){
       const [X,Y] = iso(x+.5,y+.5); if (!vis(X,Y,90)) continue;
       const i = idx(x,y), o = S.o[i], s = S.soil[i];
       if (s && s.crop) push(x+y+.8, ()=>put(cropSprite(Math.min(3,s.crop.days)),X,Y));
@@ -1518,10 +1541,17 @@ function drawWorld(){
 }
 const TOOLIMG = {};
 for (const k of ['scythe','hammer','hoe','can','seed','lua','trung']){ const im=new Image(); im.src=ICON[k]; TOOLIMG[k]=im; }
+let frameErr = 0;
 function frame(now){
   const dt = Math.min(0.05,(now-last)/1000); last = now;
-  update(dt);
-  if (S && $('title').hidden) drawWorld(); else drawTitleBg();
+  try {
+    update(dt);
+    if (S && $('title').hidden) drawWorld(); else drawTitleBg();
+  } catch(err){
+    console.error(err); ctx.setTransform(1,0,0,1,0,0); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
+    if (!frameErr++) toast('Có lỗi nhỏ khi vẽ khung hình, game vẫn tiếp tục.');
+    if (S){ for (const m of MEMBERS){ const q=S.pos[m]; if (q && q.path && !q.path.length) q.path=null; } }
+  }
   requestAnimationFrame(frame);
 }
 function drawTitleBg(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#5c9842'; ctx.fillRect(0,0,canvas.width,canvas.height); }
@@ -1530,7 +1560,7 @@ function drawTitleBg(){ ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#5c9842'; 
 function tapAt(X,Y){
   const p = me(), farm = p.map==='farm';
   for (const m of MEMBERS){ if (m==='anh') continue; const q=S.pos[m]; if (q.map!==p.map) continue;
-    const [cx,cy]=charIso(q), s=LOOK[m].s; if (Math.abs(X-cx)<14*s && Y<cy+6 && Y>cy-52*s){ talkTo(m); return; } }
+    const [cx,cy]=charIso(q), s=LOOK[m].s; if (Math.abs(X-cx)<12*s && Y<cy-14*s && Y>cy-52*s){ talkTo(m); return; } }
   const th = S.thanh;
   if (farm && th.show && th.map==='farm'){ const [cx,cy]=charIso(th); if (Math.abs(X-cx)<15 && Y<cy+6 && Y>cy-62) return goTo('anh',Math.floor(th.x/TS),Math.floor((th.y-3)/TS),'act'); }
   for (let h=96; h>0; h-=4){
@@ -1562,12 +1592,37 @@ function orderTile(tx,ty){
   }
   if (walkable(map,tx,ty)) goTo('anh', tx, ty, null, true);
 }
+const ptrs = new Map(); let drag = null, pinch = null;
+function evIso(e){ const r=canvas.getBoundingClientRect(); return [(e.clientX-r.left)*(canvas.width/r.width)/Z + camX, (e.clientY-r.top)*(canvas.height/r.height)/Z + camY]; }
 canvas.addEventListener('pointerdown', e=>{
-  if (!S || paused || !$('title').hidden) return;
-  e.preventDefault();
-  const r = canvas.getBoundingClientRect();
-  tapAt((e.clientX-r.left)*(canvas.width/r.width)/Z + camX, (e.clientY-r.top)*(canvas.height/r.height)/Z + camY);
+  if (!S || !$('title').hidden) return;
+  e.preventDefault(); canvas.setPointerCapture?.(e.pointerId);
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (ptrs.size===1) drag = {x:e.clientX, y:e.clientY, moved:false};
+  if (ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch = {d:Math.hypot(a.x-b.x,a.y-b.y)||1, z:userZoom}; if (drag) drag.moved = true; }
 });
+canvas.addEventListener('pointermove', e=>{
+  if (!ptrs.has(e.pointerId)) return;
+  const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if (pinch && ptrs.size>=2){ const [a,b]=[...ptrs.values()]; setZoom(pinch.z * Math.hypot(a.x-b.x,a.y-b.y)/pinch.d); return; }
+  if (drag){
+    if (!drag.moved && Math.hypot(e.clientX-drag.x, e.clientY-drag.y) > 10) drag.moved = true;
+    if (drag.moved){ const r=canvas.getBoundingClientRect(), k=(canvas.width/r.width)/Z; camOff.x -= (e.clientX-prev.x)*k; camOff.y -= (e.clientY-prev.y)*k; }
+  }
+});
+function endPtr(e){
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.delete(e.pointerId);
+  if (ptrs.size===0){
+    if (drag && !drag.moved && !pinch && !paused && e.type==='pointerup'){ const [X,Y]=evIso(e); tapAt(X,Y); }
+    drag = null; pinch = null;
+  }
+}
+canvas.addEventListener('pointerup', endPtr); canvas.addEventListener('pointercancel', endPtr);
+canvas.addEventListener('wheel', e=>{ if (!S || !$('title').hidden) return; e.preventDefault(); setZoom(userZoom*Math.exp(-e.deltaY*0.0015)); }, {passive:false});
+$('zIn').addEventListener('click', ()=>setZoom(userZoom*1.25));
+$('zOut').addEventListener('click', ()=>setZoom(userZoom/1.25));
+$('zMe').addEventListener('click', ()=>{ camOff.x = 0; camOff.y = 0; });
 canvas.addEventListener('contextmenu', e=>e.preventDefault());
 
 // periodic HUD refresh + safety save when the tab is hidden
@@ -1575,6 +1630,7 @@ setInterval(()=>{ if (S && !paused){ renderFamily(); renderQuest(); checkQuest()
 document.addEventListener('visibilitychange', ()=>{ if (document.hidden && S && $('title').hidden) saveGame(true); });
 window.addEventListener('pagehide', ()=>{ if (S && $('title').hidden) saveGame(true); });
 
+window.__ntna = { get S(){ return S; }, goTo, orderTile, tapAt };
 resize(); showTitle(); requestAnimationFrame(frame);
 })();
 </script>
